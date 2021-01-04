@@ -1,55 +1,62 @@
-var request = require('request');
-var repl = require('repl');
-var optimizely = require('@optimizely/optimizely-sdk');
-var defaultLogger = require('@optimizely/optimizely-sdk/lib/plugins/logger');
+const {argv} = require('yargs');
+const repl = require('repl');
+const optimizely = require('@optimizely/optimizely-sdk');
 
-var datafile, optimizelyClient, replServer;
+const sdkKey = 'TT8dk7Ru4TSfJgoMJ1phP'; // Your SDK Key here
 
-var datafileUrl = "";
-var projectId = datafileUrl.substring(datafileUrl.indexOf('/s/')+4, datafileUrl.indexOf('.json'));
+optimizely.setLogger(optimizely.logging.createLogger());
+optimizely.setLogLevel(optimizely.enums.LOG_LEVEL.DEBUG);
 
-request({
-    url: datafileUrl,
-    json: true
-}, function(error, response, body) {
-    if (!error && response.statusCode === 200) {
-        datafile = body;
-        Main(body);
-    } else {
-        console.log(error + " : " + response.statusCode);
-    }
+const cli = repl.start({
+    prompt: "sandbox("+sdkKey+") > "
 });
 
-function getActiveExperiments() {
-	for (i=0;i<datafile.experiments.length;++i) {
-		if(datafile.experiments[i].status == "Running") console.log(datafile.experiments[i].key);
-	}
+const onDecision = (decisionObject) => {
+    console.group();
+    console.log('[EVENT] - DECISION');
+    console.log(decisionObject);
+    console.groupEnd();
+    cli.displayPrompt();
 };
 
-
-function Main(datafile) {
-	
-    console.log("---------------------------------------");
-    console.log("Client ready using Project: "+projectId);
-    console.log("Active Experiments:");
-    getActiveExperiments();
-    console.log("---------------------------------------");
-    
-
-    optimizelyClient = optimizely.createInstance({ 
-    	datafile: datafile,
-    	logger: defaultLogger.createLogger({logLevel:1}),
-    });
-
-    
-    replServer = repl.start({
-        prompt: "optimizely-fullstack-sandbox(" + projectId + ") > "
-    });
-
-    replServer.context.optimizely = optimizely;
-    replServer.context.optimizelyClient = optimizelyClient;
-    replServer.context.projectId = projectId;
-    replServer.context.datafile = datafile;
-    replServer.context.getActiveExperiments = getActiveExperiments;
-    replServer.displayPrompt();
+const onActivate = (experiment) => {
+    console.group();
+    console.log('[EVENT] - ACTIVATE');
+    console.log(experiment);
+    console.groupEnd();
+    cli.displayPrompt();
 };
+
+const onTrack = (event) => {
+    console.group();
+    console.log('[EVENT] - TRACK');
+    console.log(event);
+    console.groupEnd();
+    cli.displayPrompt();
+};
+
+const onConfigUpdate = () => {
+    console.log('[EVENT] - CONFIG_UPDATE');
+    cli.displayPrompt();
+};
+
+const optimizelyInstance = optimizely.createInstance({
+    sdkKey: sdkKey
+/*    datafileOptions: {
+      autoUpdate: true,
+      updateInterval:   30000
+    },
+    eventBatchSize: 100,
+    eventFlushInterval: 3000,
+    userProfileService: userProfileService  */
+});
+
+optimizelyInstance.onReady().then(() => {
+    optimizelyInstance.notificationCenter.addNotificationListener(optimizely.enums.NOTIFICATION_TYPES.DECISION, onDecision);
+    optimizelyInstance.notificationCenter.addNotificationListener(optimizely.enums.NOTIFICATION_TYPES.ACTIVATE, onActivate);
+    optimizelyInstance.notificationCenter.addNotificationListener(optimizely.enums.NOTIFICATION_TYPES.TRACK, onTrack);
+    optimizelyInstance.notificationCenter.addNotificationListener(optimizely.enums.NOTIFICATION_TYPES.OPTIMIZELY_CONFIG_UPDATE, onConfigUpdate);
+    cli.context.optimizely = optimizelyInstance;
+    cli.context.sdkKey = sdkKey;
+    cli.displayPrompt();
+});
